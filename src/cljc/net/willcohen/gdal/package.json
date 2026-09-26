@@ -1,0 +1,49 @@
+{
+  "name": "gdal-wasm",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "GDAL/OGR compiled to WebAssembly for Node.js and the browser, on the ffi-wasm worker pool.",
+  "keywords": ["gdal", "ogr", "geospatial", "wasm"],
+  "homepage": "https://github.com/willcohen/clj-gdal",
+  "bugs": {
+    "url": "https://github.com/willcohen/clj-gdal/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/willcohen/clj-gdal.git"
+  },
+  "main": "gdal.mjs",
+  "exports": {
+    ".": "./gdal.mjs",
+    "./gdal-handler": "./gdal-handler.mjs",
+    "./gdal-loader": "./gdal-loader.mjs",
+    "./fndefs": "./fndefs.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "gdal.mjs",
+    "gdal-handler.mjs",
+    "gdal-handler-overrides.mjs",
+    "gdal-loader.mjs",
+    "host-path.mjs",
+    "wasm.mjs",
+    "fndefs.mjs",
+    "macros.mjs",
+    "libgdal.mjs",
+    "libgdal.wasm",
+    "proj.db",
+    "README.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES"
+  ],
+  "dependencies": {
+    "squint-cljs": "^0.14.210"
+  },
+  "peerDependencies": {
+    "ffi-wasm": "0.0.3"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT AND Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-3-Clause AND CC0-1.0 AND IJG AND ISC AND Info-ZIP AND Qhull AND SunPro AND Zlib AND blessing AND libpng-2.0 AND libtiff AND LicenseRef-3i AND LicenseRef-EPSG AND LicenseRef-libgeotiff"
+}

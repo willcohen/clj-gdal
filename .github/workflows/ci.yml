@@ -1,0 +1,352 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Install Clojure, Babashka, and clj-kondo
+        uses: DeLaGuardo/setup-clojure@13.6.1
+        with:
+          bb: latest
+          cli: latest
+          clj-kondo: '2026.08.04'
+
+      - name: Setup Clojure and clj-kondo cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.m2
+            ~/.gitlibs
+            ~/.clojure/.cpcache
+            .clj-kondo/.cache-cli
+            .clj-kondo/imports
+          key: lint-${{ hashFiles('**/deps.edn', '**/bb.edn') }}
+
+      - name: Run clj-kondo
+        run: bb lint
+
+      - name: Run the build script tests
+        run: bb test:bb
+
+  # Each build job restores the source archives from one cache, and
+  # bb build:native downloads each one that is not there.
+  build-native:
+    name: Build ${{ matrix.dir }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      matrix:
+        include:
+          - {dir: darwin-aarch64, os: macos-latest}
+          - {dir: linux-amd64, os: ubuntu-latest}
+          - {dir: linux-aarch64, os: ubuntu-latest}
+          - {dir: linux-amd64-musl, os: ubuntu-latest}
+          - {dir: linux-aarch64-musl, os: ubuntu-latest}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Restore build cache
+        id: cache
+        uses: actions/cache@v6
+        with:
+          path: resources/${{ matrix.dir }}/
+          key: native-${{ matrix.dir }}-${{ hashFiles('scripts/sources.clj', 'scripts/lib_build.clj', 'scripts/native_build.clj', 'bb.edn', 'flake.nix', 'flake.lock') }}
+
+      - name: Restore source cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v6
+        with:
+          path: target/*.tar.gz
+          key: source-archives-${{ hashFiles('scripts/sources.clj') }}
+
+      - name: Install Nix
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: cachix/install-nix-action@v31
+
+      - name: Setup Nix cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: DeterminateSystems/magic-nix-cache-action@v14
+
+      # The dev shell has zig for a Linux dir, and the readelf of check-lib!.
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: nix develop --command bb build:native ${{ matrix.dir }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.dir }}
+          path: resources/${{ matrix.dir }}/
+          retention-days: 7
+
+  build-wasm:
+    name: Build WASM
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Restore build cache
+        id: cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            src/cljc/net/willcohen/gdal/libgdal.mjs
+            src/cljc/net/willcohen/gdal/libgdal.wasm
+            src/cljc/net/willcohen/gdal/proj.db
+          key: wasm-${{ hashFiles('scripts/sources.clj', 'scripts/lib_build.clj', 'scripts/wasm_build.clj', 'src/c/**', 'src/cljc/net/willcohen/gdal/fndefs.cljc', 'bb.edn', 'flake.nix', 'flake.lock') }}
+
+      - name: Restore source cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v6
+        with:
+          path: target/*.tar.gz
+          key: source-archives-${{ hashFiles('scripts/sources.clj') }}
+
+      - name: Install Nix
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: cachix/install-nix-action@v31
+
+      - name: Setup Nix cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: DeterminateSystems/magic-nix-cache-action@v14
+
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: nix develop --command bb build:wasm
+
+      # The artifact root is the package dir, the common parent of the paths.
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: wasm
+          path: |
+            src/cljc/net/willcohen/gdal/libgdal.mjs
+            src/cljc/net/willcohen/gdal/libgdal.wasm
+            src/cljc/net/willcohen/gdal/proj.db
+          retention-days: 7
+
+  # bb jar needs each lib. The artifact keeps each lib in its resource dir.
+  # bb deploy builds its jars from the local resources/, not from here.
+  natives:
+    name: Collect the native libs
+    needs: [build-native]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download each lib
+        uses: actions/download-artifact@v8
+        with:
+          pattern: native-*-*
+          path: artifacts/
+
+      - name: Put each lib in its resource dir
+        run: |
+          for d in artifacts/native-*; do
+            dir="resources/${d#artifacts/native-}"
+            mkdir -p "$dir"
+            cp "$d"/libgdal.* "$dir"/
+          done
+          ls -l resources/*/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: natives
+          path: resources/
+          retention-days: 7
+
+  test-java:
+    name: Java Tests (${{ matrix.name }})
+    needs: [natives, build-wasm]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-latest
+          - name: Linux amd64
+            os: ubuntu-latest
+          - name: Linux aarch64
+            os: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Java (GraalVM CE 25)
+        uses: graalvm/setup-graalvm@v1.6.6
+        with:
+          distribution: graalvm-community
+          # The CE release whose libgraal matches the org.graalvm.* 25.3.4.1
+          # artifacts in deps.edn. Truffle needs the two to agree.
+          version: '25.3.4.1'
+          java-version: '25'
+
+      - name: Install Clojure and Babashka
+        uses: DeLaGuardo/setup-clojure@13.6.1
+        with:
+          bb: latest
+          cli: latest
+
+      # The WKB test starts Node on the squint output.
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+
+      - name: Setup Clojure cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.m2
+            ~/.gitlibs
+            ~/.clojure/.cpcache
+          key: clojure-deps-${{ matrix.os }}-${{ hashFiles('**/deps.edn', '**/bb.edn') }}
+          restore-keys: clojure-deps-${{ matrix.os }}-
+
+      - name: Download native libs
+        uses: actions/download-artifact@v8
+        with:
+          name: natives
+          path: resources/
+
+      - name: Download WASM artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: wasm
+          path: src/cljc/net/willcohen/gdal
+
+      - name: Run FFI tests
+        run: bb test:ffi
+
+      - name: Run GraalVM tests
+        run: bb test:graal
+
+      # The jar check resolves the gdal-native jar of this host from the pom
+      # profiles.
+      - name: Run JAR tests
+        run: bb test:jar
+
+  test-java-linux-musl:
+    name: Java FFI Tests (Alpine amd64)
+    needs: [natives]
+    runs-on: ubuntu-latest
+    container: clojure:temurin-25-tools-deps-alpine
+    steps:
+      - name: Install git
+        run: apk add --no-cache git
+
+      - uses: actions/checkout@v7
+
+      # The glibc lib is there too. If the loader takes it on musl, the load
+      # fails, init! uses GraalVM, and the fixture of each test fails.
+      - name: Download native libs
+        uses: actions/download-artifact@v8
+        with:
+          name: natives
+          path: resources/
+
+      # The image has no bb and no Node. The WKB test starts Node, and the
+      # ^:graal tests need GraalVM.
+      - name: Run FFI tests
+        run: clojure -M:test -e :graal -r 'net\.willcohen\.gdal\.(?!wkb-test$)[a-z-]+-test'
+
+  test-node:
+    name: Node Tests (${{ matrix.name }})
+    needs: [build-wasm]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-latest
+          - name: Linux amd64
+            os: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Babashka
+        uses: DeLaGuardo/setup-clojure@13.6.1
+        with:
+          bb: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+
+      - name: Download WASM artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: wasm
+          path: src/cljc/net/willcohen/gdal
+
+      - name: Run Node.js tests
+        run: bb test:node
+
+      - name: Run npm tests
+        run: bb test:npm
+
+  test-playwright:
+    name: Playwright (Linux amd64)
+    needs: [build-wasm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Babashka
+        uses: DeLaGuardo/setup-clojure@13.6.1
+        with:
+          bb: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+
+      - name: Download WASM artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: wasm
+          path: src/cljc/net/willcohen/gdal
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-linux-${{ hashFiles('test/browser/package.json') }}
+
+      - name: Run Playwright tests
+        run: bb test:playwright
+
+  ci-pass:
+    name: CI Pass
+    if: always()
+    needs: [lint, test-java, test-java-linux-musl, test-node, test-playwright]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "  \(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success")' > /dev/null

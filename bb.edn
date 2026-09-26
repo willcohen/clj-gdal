@@ -1,0 +1,135 @@
+{:paths ["scripts" "src/cljc"]
+ :deps  {net.willcohen/native {:mvn/version "0.0.3"}}
+ :tasks
+ {kondo:fndefs
+  {:doc "Write the C names from fndefs.cljc into the exported clj-kondo hook. Pass --check to do a check instead of a write."
+   :requires ([lint])
+   :task (lint/sync-hook! (some #{"--check"} *command-line-args*))}
+
+  lint:deps
+  {:doc "Copy the exported clj-kondo configs of the dependencies into .clj-kondo/imports, and index the Clojure classpath into .clj-kondo/.cache-cli. Run it again after a change to a dependency version."
+   :requires ([lint])
+   :task (lint/deps!)}
+
+  lint
+  {:doc "Run clj-kondo on src, test and scripts with the exported hooks of this project. The task stops with an error if the names in the hook do not agree with fndefs.cljc."
+   :requires ([lint])
+   :task (lint/lint!)}
+
+  squint
+  {:doc "Write gdal-handler.mjs from fndefs.cljc, and compile the ClojureScript of the gdal-wasm package with squint."
+   :requires ([cljs-build])
+   :task (cljs-build/compile!)}
+
+  clean
+  {:doc "Delete the build outputs, the generated .mjs files and target/, which holds the sources and the build trees."
+   :requires ([clean])
+   :task (clean/clean!)}
+
+  download-sources
+  {:doc "Download the source archives into target/, check their sha256 and extract them."
+   :requires ([sources])
+   :task (sources/download!)}
+
+  build:native
+  {:doc "Build libgdal for each resource dir in the args and copy it to resources/<dir>. With no args, build darwin-aarch64, which needs a Mac. zig builds linux-amd64, linux-aarch64, linux-amd64-musl and linux-aarch64-musl on any host."
+   :depends [download-sources]
+   :requires ([native-build])
+   :task (run! native-build/build! (or (seq *command-line-args*) ["darwin-aarch64"]))}
+
+  build:wasm
+  {:doc "Build sqlite, zlib, libtiff, PROJ and the GDAL archives for emscripten, and link libgdal.{mjs,wasm} into the npm package dir, with the proj.db of the build. A build step runs again only when its args change. The link always runs."
+   :depends [download-sources]
+   :requires ([wasm-build])
+   :task (wasm-build/build!)}
+
+  test:ffi
+  {:doc "Run the Clojure tests on the FFI backend, without the ^:graal tests.
+The WKB test starts Node on the squint output, thus bb squint runs first."
+   :depends [squint]
+   :requires ([native-dev])
+   :task (shell "clojure" (str "-M" (native-dev/aliases ":test")) "-e" ":graal")}
+
+  test:graal
+  {:doc "Run all Clojure tests on the GraalVM backend, in a separate JVM from
+bb test:ffi, because the backend is process-global."
+   :depends [squint]
+   :requires ([native-dev])
+   :task (shell {:extra-env {"CLJ_GDAL_BACKEND" "graal"}}
+                "clojure" (str "-M" (native-dev/aliases ":test")))}
+
+  build:js:test
+  {:doc "Copy the clj-native test runner into test/cljc/dist/, and compile the cljs.test mirrors in test/cljc with squint."
+   :depends [squint]
+   :requires ([js-tests])
+   :task (js-tests/compile!)}
+
+  test:node
+  {:doc "Run the cljs.test mirrors under Node against the squint output. Then
+run test/npm/test.mjs on the source tree, which also makes sure that Node
+exits after gdal.shutdown()."
+   :depends [build:js:test]
+   :requires ([js-tests])
+   :task (do (js-tests/run-all!)
+             (shell "node" "test/npm/test.mjs" "test/fixtures/tiny.gpkg"
+                    "src/cljc/net/willcohen/gdal"))}
+
+  test:playwright
+  {:doc "Run the browser tests with Playwright in headless Chromium."
+   :depends [squint]
+   :requires ([browser-tests])
+   :task (browser-tests/run-all!)}
+
+  test:jar
+  {:doc "Deploy the jars to a Maven repository in target/jar-test, resolve net.willcohen/gdal from it with the pom profile of this host, and open a GeoPackage on the FFI and GraalVM backends."
+   :depends [jar]
+   :requires ([package-tests])
+   :task (package-tests/test-jar!)}
+
+  test:npm
+  {:doc "Pack the gdal-wasm tarball, install it in a new project, and open tiny.gpkg through it."
+   :depends [squint stage:npm-docs]
+   :requires ([package-tests])
+   :task (package-tests/test-npm!)}
+
+  test:bb
+  {:doc "Run the tests of the build scripts in test/bb."
+   :extra-paths ["test/bb"]
+   :requires ([clojure.test :as t] [native-build-test] [scripts-test])
+   :task (when-not (t/successful? (t/run-tests 'native-build-test 'scripts-test))
+           (System/exit 1))}
+
+  test:all
+  {:doc "Run all test suites."
+   :depends [test:bb test:ffi test:graal test:node test:playwright test:jar test:npm]}
+
+  jar
+  {:doc "Build target/gdal-<version>.jar, and the gdal-native pom and its jar
+for each of darwin-aarch64, linux-amd64 and linux-aarch64. The native libs
+must be in resources/, and the wasm module and proj.db in the npm package
+dir."
+   :task (shell "clojure" "-T:build" "jar")}
+
+  stage:npm-docs
+  {:doc "Copy README.md, LICENSE and THIRD-PARTY-NOTICES into the npm package dir."
+   :requires ([release])
+   :task (release/stage-npm-docs!)}
+
+  deploy:dry-run
+  {:doc "Build each native library and the wasm module, run all test suites
+and each check of bb deploy, and list the jar and npm package files. A build
+step runs only when its args changed, thus the libs that the jars ship agree
+with the tree. The wasm link always runs. The task publishes nothing."
+   :depends [download-sources]
+   :requires ([release] [native-build])
+   :task (do (run! native-build/build! (sort native-build/dirs))
+             (run 'build:wasm)
+             (run 'test:all)
+             (release/dry-run!))}
+
+  deploy
+  {:doc "Tag main with the version, push main and the tag, and publish to
+Clojars and npm. Move main to the release commit first."
+   :depends [jar squint stage:npm-docs]
+   :requires ([release])
+   :task (release/deploy!)}}}

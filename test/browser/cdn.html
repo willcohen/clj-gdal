@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 Will Cohen
+
+  Part of clj-gdal, under the MIT License.
+  See LICENSE for license information.
+  SPDX-License-Identifier: MIT
+-->
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>clj-gdal from a second origin</title>
+    <!-- ?cdn= is the second origin. Each module comes from the package dir
+         there, as npm installs it, with no specifier rewrite. The importmap
+         has the entries that a page without a bundler must have. -->
+    <script>
+        const nm = new URLSearchParams(location.search).get('cdn')
+            + '/src/cljc/net/willcohen/gdal/node_modules/';
+        const importmap = document.createElement('script');
+        importmap.type = 'importmap';
+        importmap.textContent = JSON.stringify({
+            imports: {
+                'squint-cljs/': nm + 'squint-cljs/',
+                'resource-tracker': nm + 'resource-tracker/resource.mjs',
+                'worker-router': nm + 'worker-router/dist/index.mjs',
+                'worker-router/worker-bootstrap': nm + 'worker-router/dist/worker-bootstrap.mjs',
+                'comlink': nm + 'comlink/dist/esm/comlink.mjs',
+                'ffi-wasm': nm + 'ffi-wasm/dist/ffi-wasm.mjs',
+                'ffi-wasm/handler-env': nm + 'ffi-wasm/dist/handler_env.mjs',
+            },
+        });
+        document.currentScript.after(importmap);
+    </script>
+</head>
+<body>
+    <script type="module">
+        const pkg = new URLSearchParams(location.search).get('cdn')
+            + '/src/cljc/net/willcohen/gdal/';
+        try {
+            window.gdal = await import(pkg + 'gdal.mjs');
+            window.fndefs = await import(pkg + 'fndefs.mjs');
+            window.__gdalImport = 'ok';
+        } catch (err) {
+            window.__gdalImport = String(err?.stack ?? err);
+        }
+    </script>
+</body>
+</html>

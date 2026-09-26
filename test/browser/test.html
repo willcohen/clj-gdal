@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 Will Cohen
+
+  Part of clj-gdal, under the MIT License.
+  See LICENSE for license information.
+  SPDX-License-Identifier: MIT
+-->
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>clj-gdal browser smoke test</title>
+    <script type="importmap">
+    {
+        "imports": {
+            "squint-cljs/":     "/src/cljc/net/willcohen/gdal/node_modules/squint-cljs/",
+            "resource-tracker": "/src/cljc/net/willcohen/gdal/node_modules/resource-tracker/resource.mjs",
+            "worker-router":    "/src/cljc/net/willcohen/gdal/node_modules/worker-router/dist/index.mjs",
+            "worker-router/worker-bootstrap": "/src/cljc/net/willcohen/gdal/node_modules/worker-router/dist/worker-bootstrap.mjs",
+            "comlink":          "/src/cljc/net/willcohen/gdal/node_modules/comlink/dist/esm/comlink.mjs"
+        }
+    }
+    </script>
+</head>
+<body>
+    <script type="module">
+        try {
+            const gdal = await import('./dist/gdal.mjs');
+            const gdalLoader = await import('./dist/gdal-loader.mjs');
+            const fndefs = await import('./dist/fndefs.mjs');
+            window.gdal = gdal;
+            window.gdalLoader = gdalLoader;
+            window.fndefs = fndefs;
+            // Fetch a fixture as a File, as an <input type="file"> gives it.
+            window.fixtureFile = async (path) => {
+                const resp = await fetch('/test/fixtures/' + path);
+                if (!resp.ok) throw new Error(`${path}: HTTP ${resp.status}`);
+                return new File([await resp.blob()], path.split('/').pop());
+            };
+            window.readFeatures = async (path) => {
+                const ds = await gdal.gdal_open_ex(path, fndefs.GDAL_OF_VECTOR, null, null, null);
+                if (!ds) throw new Error(`gdal_open_ex returned NULL for ${path}`);
+                try {
+                    return await gdal.read_vector_features_BANG_(await gdal.gdal_dataset_get_layer(ds, 0));
+                } finally {
+                    await gdal.gdal_close(ds);
+                }
+            };
+            window.__gdalImport = 'ok';
+        } catch (err) {
+            window.__gdalImport = String(err?.stack ?? err);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+;; Copyright (c) 2026 Will Cohen
+;;
+;; Part of clj-gdal, under the MIT License.
+;; See LICENSE for license information.
+;; SPDX-License-Identifier: MIT
+
+;; The hook declares each generated fn of gdal.cljc. A consumer must also copy
+;; the config of net.willcohen/native, because the hook requires
+;; hooks.native.generated:
+;;   clj-kondo --lint "$(clojure -Spath)" --copy-configs --skip-lint
+{:hooks {:analyze-call
+         {net.willcohen.gdal.macros/define-all-gdal-public-fns
+          hooks.gdal/define-all-gdal-public-fns
+          ;; The cljs branch of gdal.cljc requires the macros ns as `macros`.
+          macros/define-all-gdal-public-fns
+          hooks.gdal/define-all-gdal-public-fns}}}

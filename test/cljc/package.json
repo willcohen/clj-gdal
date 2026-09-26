@@ -1,0 +1,9 @@
+{
+  "name": "clj-gdal-cljs-tests",
+  "private": true,
+  "type": "module",
+  "description": "Node workspace for the cljs.test mirrors. Each test under this folder resolves squint-cljs from here. bb build:js:test copies the clj-native test helpers into ./dist.",
+  "dependencies": {
+    "squint-cljs": "^0.14.210"
+  }
+}

@@ -1,0 +1,16 @@
+;; Copyright (c) 2026 Will Cohen
+;;
+;; Part of clj-gdal, under the MIT License.
+;; See LICENSE for license information.
+;; SPDX-License-Identifier: MIT
+
+;; One gdal-native classifier jar for each JVM platform, with the resource
+;; dirs of its libs. build.clj and native_build.clj read this file. A Linux
+;; jar holds the glibc and the musl lib, because a pom profile cannot tell the
+;; two apart.
+[{:classifier "darwin-aarch64" :os [:family "mac"] :arch "aarch64"
+  :dirs ["darwin-aarch64"]}
+ {:classifier "linux-amd64" :os [:name "linux"] :arch "amd64"
+  :dirs ["linux-amd64" "linux-amd64-musl"]}
+ {:classifier "linux-aarch64" :os [:name "linux"] :arch "aarch64"
+  :dirs ["linux-aarch64" "linux-aarch64-musl"]}]

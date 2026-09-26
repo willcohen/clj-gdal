@@ -1,0 +1,48 @@
+docs/plans/
+.mcp.json
+.vscode/
+.direnv/
+.portal/
+.claude/
+.DS_Store
+.cpcache/
+classes/
+target/
+node_modules/
+
+resources/darwin-aarch64/libgdal.dylib
+resources/linux-*/libgdal.so
+package-lock.json
+test/browser/dist/
+test/cljc/dist/
+test/cljc/**/*_test.mjs
+
+test/browser/test-results/
+
+.nrepl-port
+
+gdal-wasm-*.tgz
+# bb stage:npm-docs copies README.md, LICENSE and THIRD-PARTY-NOTICES into
+# the npm package dir.
+src/cljc/net/willcohen/gdal/README.md
+src/cljc/net/willcohen/gdal/LICENSE
+src/cljc/net/willcohen/gdal/THIRD-PARTY-NOTICES
+
+# bb squint writes these files, and the npm tarball includes them.
+src/cljc/net/willcohen/gdal/gdal.mjs
+src/cljc/net/willcohen/gdal/fndefs.mjs
+src/cljc/net/willcohen/gdal/wasm.mjs
+src/cljc/net/willcohen/gdal/macros.mjs
+src/cljc/net/willcohen/gdal/gdal-handler.mjs
+
+# bb build:wasm writes the module and proj.db here. The JVM reads them from
+# the class path, and the jar and the npm tarball take them from here.
+src/cljc/net/willcohen/gdal/libgdal.mjs
+src/cljc/net/willcohen/gdal/libgdal.wasm
+src/cljc/net/willcohen/gdal/proj.db
+
+# Git tracks .clj-kondo/config.edn. bb lint:deps writes the dependency index
+# and the imported configs. clojure-lsp writes .clj-kondo/.cache.
+.clj-kondo/.cache
+.clj-kondo/.cache-cli
+.clj-kondo/imports

@@ -1,0 +1,14 @@
+;; Copyright (c) 2026 Will Cohen
+;;
+;; Part of clj-gdal, under the MIT License.
+;; See LICENSE for license information.
+;; SPDX-License-Identifier: MIT
+
+;; clj-gdal lints itself with its exported config, to test a change before a
+;; consumer gets it. bb lint:deps copies the net.willcohen/native config into
+;; imports/.
+{:config-paths ["../resources/clj-kondo.exports/net.willcohen/gdal"
+                "imports/net.willcohen/native"]
+ ;; with-temp-dir binds its first form as let does.
+ :lint-as {babashka.fs/with-temp-dir clojure.core/let}
+ :output {:exclude-files ["node_modules/"]}}
